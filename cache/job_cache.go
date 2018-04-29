@@ -11,14 +11,17 @@ import (
 	"github.com/gizo-network/gizo/job"
 )
 
+//MaxCacheLen holds/held jobs in the cache
 const (
 	MaxCacheLen = 128 //number of jobs held in cache
 )
 
+//ErrCacheFull handles errors if the cache is
 var (
 	ErrCacheFull = errors.New("Cache: Cache filled up")
 )
 
+//JobCache stores jobs
 type JobCache struct {
 	cache *bigcache.BigCache
 	bc    *core.BlockChain
@@ -105,6 +108,7 @@ func (c JobCache) fill() {
 	}
 }
 
+// NewJobCache returns the memoery address of a new JobCache
 func NewJobCache(bc *core.BlockChain) *JobCache {
 	c, _ := bigcache.NewBigCache(bigcache.DefaultConfig(time.Minute))
 	jc := JobCache{c, bc}
