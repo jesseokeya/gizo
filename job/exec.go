@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gizo-network/gizo/helpers"
+
 	"github.com/kpango/glg"
 )
 
@@ -25,32 +27,34 @@ type Exec struct {
 	Backoff       time.Duration `json:"backoff"`        //backoff time of retries (seconds)
 	ExecutionTime int64         `json:"execution_time"` // time scheduled to run (unix) - should sleep # of seconds before adding to job queue
 	Interval      int           `json:"interval"`       //periodic job exec (seconds)
-	By            []byte        `json:"by"`             //! ID of the worker node that ran this
+	By            string        `json:"by"`             //! ID of the worker node that ran this
 	TTL           time.Duration `json:"ttl"`            //! time limit of job running
-	envs          EnvironmentVariables
-	pub           string //! public key for private jobs
+	Pub           string        `json:"pub"`            //! public key for private jobs
+	Envs          []byte        `json:"envs"`
 	cancel        chan struct{}
 }
 
-func NewExec(args []interface{}, retries, priority int, backoff time.Duration, execTime int64, interval int, ttl time.Duration, pub string, envs EnvironmentVariables) (*Exec, error) {
+func NewExec(args []interface{}, retries, priority int, backoff time.Duration, execTime int64, interval int, ttl time.Duration, pub string, envs EnvironmentVariables, passphrase string) (*Exec, error) {
 	if retries > MaxRetries {
 		return nil, ErrRetriesOutsideLimit
 	}
-	return &Exec{
+
+	encryptEnvs := helpers.Encrypt(envs.Serialize(), passphrase)
+	ex := &Exec{
 		Args:          args,
 		Retries:       retries,
-		RetriesCount:  0,
+		RetriesCount:  0, //initialized to 0
 		Priority:      priority,
 		Status:        STARTED,
 		Backoff:       backoff,
-		ExecutionTime: execTime,
 		Interval:      interval,
+		ExecutionTime: execTime,
 		TTL:           ttl,
-		envs:          envs,
-		By:            []byte("0000"), //!FIXME: replace with real node ID
-		pub:           pub,
+		Envs:          encryptEnvs,
+		Pub:           pub,
 		cancel:        make(chan struct{}),
-	}, nil
+	}
+	return ex, nil
 }
 
 func (e *Exec) Cancel() {
@@ -61,13 +65,14 @@ func (e Exec) GetCancelChan() chan struct{} {
 	return e.cancel
 }
 
-func (e Exec) GetEnvs() EnvironmentVariables {
-	return e.envs
+func (e Exec) GetEnvs(passphrase string) EnvironmentVariables {
+	return DeserializeEnvs(helpers.Decrypt(e.Envs, passphrase))
 }
 
-func (e Exec) GetEnvsMap() map[string]interface{} {
+func (e Exec) GetEnvsMap(passphrase string) map[string]interface{} {
 	temp := make(map[string]interface{})
-	for _, val := range e.GetEnvs() {
+	envs := e.GetEnvs(passphrase)
+	for _, val := range envs {
 		temp[val.GetKey()] = val.GetValue()
 	}
 	return temp
@@ -99,7 +104,6 @@ func (e *Exec) SetPriority(p int) error {
 	case MEDIUM:
 	case LOW:
 	case NORMAL:
-
 	default:
 		return ErrInvalidPriority
 	}
@@ -112,7 +116,7 @@ func (e Exec) GetExecutionTime() int64 {
 
 //? takes unix time
 func (e *Exec) SetExecutionTime(t int64) error {
-	if time.Unix(t, 0).Before(time.Now()) {
+	if time.Now().Unix() > t {
 		return ErrExecutionTimeBehind
 	}
 	e.ExecutionTime = t
@@ -187,7 +191,7 @@ func (e *Exec) setHash() {
 			[]byte(strconv.FormatInt(int64(e.GetDuration()), 10)),
 			stringified,
 			result,
-			e.GetBy(),
+			[]byte(e.GetBy()),
 		},
 		[]byte{},
 	)
@@ -228,12 +232,16 @@ func (e *Exec) SetResult(r interface{}) {
 	e.Result = r
 }
 
-func (e Exec) GetBy() []byte {
+func (e Exec) GetBy() string {
 	return e.By
 }
 
-func (e *Exec) SetBy(by []byte) {
+func (e *Exec) SetBy(by string) {
 	e.By = by
+}
+
+func (e Exec) getPub() string {
+	return e.Pub
 }
 
 func (e Exec) Serialize() []byte {
@@ -244,6 +252,12 @@ func (e Exec) Serialize() []byte {
 	return temp
 }
 
-func (e Exec) getPub() string {
-	return e.pub
+func DeserializeExec(b []byte) Exec {
+	var temp Exec
+	err := json.Unmarshal(b, &temp)
+	if err != nil {
+		glg.Fatal(err)
+	}
+	temp.cancel = make(chan struct{})
+	return temp
 }

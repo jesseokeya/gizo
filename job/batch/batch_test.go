@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/gizo-network/gizo/cache"
 	"github.com/gizo-network/gizo/core"
 	"github.com/gizo-network/gizo/core/merkletree"
 	"github.com/gizo-network/gizo/crypt"
@@ -43,12 +44,12 @@ func TestBatch(t *testing.T) {
 	node2 := merkletree.NewNode(*j2, &merkletree.MerkleNode{}, &merkletree.MerkleNode{})
 	nodes := []*merkletree.MerkleNode{node1, node2}
 	tree := merkletree.NewMerkleTree(nodes)
-	bc := core.CreateBlockChain()
-	block := core.NewBlock(*tree, bc.GetPrevHash(), bc.GetNextHeight(), 10)
+	bc := core.CreateBlockChain("test")
+	block := core.NewBlock(*tree, bc.GetPrevHash(), bc.GetNextHeight(), 10, "test")
 	bc.AddBlock(block)
 	jr := job.NewJobRequestMultiple(j.GetID(), exec1, exec2, exec3)
 	jr2 := job.NewJobRequestMultiple(j2.GetID(), exec4, exec4, exec4, exec4, exec4)
-	batch, err := batch.NewBatch([]job.JobRequestMultiple{*jr, *jr2}, bc, pq)
+	batch, err := batch.NewBatch([]job.JobRequestMultiple{*jr, *jr2}, bc, pq, cache.NewJobCacheNoWatch(bc))
 	assert.NoError(t, err)
 	batch.Dispatch()
 	assert.NotNil(t, batch.Result())

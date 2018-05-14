@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/gizo-network/gizo/cache"
 	"github.com/gizo-network/gizo/core"
 	"github.com/gizo-network/gizo/core/merkletree"
 	"github.com/gizo-network/gizo/crypt"
@@ -55,13 +56,13 @@ func TestChord(t *testing.T) {
 
 	nodes := []*merkletree.MerkleNode{node1, node2, node3}
 	tree := merkletree.NewMerkleTree(nodes)
-	bc := core.CreateBlockChain()
-	block := core.NewBlock(*tree, bc.GetLatestBlock().GetHeader().GetHash(), bc.GetLatestHeight()+1, 10)
+	bc := core.CreateBlockChain("test")
+	block := core.NewBlock(*tree, bc.GetLatestBlock().GetHeader().GetHash(), bc.GetNextHeight(), 10, "test")
 	bc.AddBlock(block)
 	jr := job.NewJobRequestMultiple(j.GetID(), exec1, exec2, exec3)
 	jr2 := job.NewJobRequestMultiple(j2.GetID(), exec4)
 	callbackJR := job.NewJobRequestMultiple(callback.GetID(), exec5)
-	c, err := chord.NewChord([]job.JobRequestMultiple{*jr, *jr2}, *callbackJR, bc, pq)
+	c, err := chord.NewChord([]job.JobRequestMultiple{*jr, *jr2}, *callbackJR, bc, pq, cache.NewJobCacheNoWatch(bc))
 	assert.NoError(t, err)
 	c.Dispatch()
 	assert.NotNil(t, c.Result().GetExec()[0].GetResult())

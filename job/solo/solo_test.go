@@ -4,6 +4,8 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/gizo-network/gizo/cache"
+
 	"github.com/stretchr/testify/assert"
 
 	"github.com/gizo-network/gizo/core"
@@ -32,10 +34,10 @@ func TestSolo(t *testing.T) {
 	node1 := merkletree.NewNode(*j, &merkletree.MerkleNode{}, &merkletree.MerkleNode{})
 	nodes := []*merkletree.MerkleNode{node1}
 	tree := merkletree.NewMerkleTree(nodes)
-	bc := core.CreateBlockChain()
-	block := core.NewBlock(*tree, bc.GetLatestBlock().GetHeader().GetHash(), bc.GetLatestHeight()+1, 10)
+	bc := core.CreateBlockChain("test")
+	block := core.NewBlock(*tree, bc.GetLatestBlock().GetHeader().GetHash(), bc.GetNextHeight(), 10, "test")
 	bc.AddBlock(block)
-	s := solo.NewSolo(*job.NewJobRequestSingle(j.GetID(), exec1), bc, pq)
+	s := solo.NewSolo(*job.NewJobRequestSingle(j.GetID(), exec1), bc, pq, cache.NewJobCacheNoWatch(bc))
 	s.Dispatch()
 	assert.NotNil(t, s.Result())
 }

@@ -1,7 +1,11 @@
 package batch
 
 import (
+	"strconv"
 	"sync"
+	"time"
+
+	"github.com/gizo-network/gizo/cache"
 
 	"github.com/gizo-network/gizo/core"
 	"github.com/gizo-network/gizo/job"
@@ -15,6 +19,7 @@ type Batch struct {
 	jobs   []job.JobRequestMultiple
 	bc     *core.BlockChain
 	pq     *queue.JobPriorityQueue
+	jc     *cache.JobCache
 	result []job.JobRequestMultiple
 	length int
 	status string
@@ -22,7 +27,7 @@ type Batch struct {
 }
 
 //NewBatch returns batch
-func NewBatch(j []job.JobRequestMultiple, bc *core.BlockChain, pq *queue.JobPriorityQueue) (*Batch, error) {
+func NewBatch(j []job.JobRequestMultiple, bc *core.BlockChain, pq *queue.JobPriorityQueue, jc *cache.JobCache) (*Batch, error) {
 	length := 0
 	for _, jr := range j {
 		length += len(jr.GetExec())
@@ -34,6 +39,7 @@ func NewBatch(j []job.JobRequestMultiple, bc *core.BlockChain, pq *queue.JobPrio
 		jobs:   j,
 		bc:     bc,
 		pq:     pq,
+		jc:     jc,
 		length: length,
 		cancel: make(chan struct{}),
 	}
@@ -73,6 +79,10 @@ func (b *Batch) setBC(bc *core.BlockChain) {
 
 func (b Batch) getBC() *core.BlockChain {
 	return b.bc
+}
+
+func (b Batch) getJC() *cache.JobCache {
+	return b.jc
 }
 
 func (b Batch) getPQ() *queue.JobPriorityQueue {
@@ -126,10 +136,16 @@ func (b *Batch) Dispatch() {
 
 	results := make(chan qItem.Item, b.getLength())
 	var jobIDs []string
+	var sleepWG sync.WaitGroup
 	for _, jr := range b.GetJobs() {
 		b.setStatus("Queueing execs of job - " + jr.GetID())
 		jobIDs = append(jobIDs, jr.GetID())
-		j, err := b.getBC().FindJob(jr.GetID())
+		var j *job.Job
+		var err error
+		j, err = b.getJC().Get(jr.GetID())
+		if j == nil {
+			j, err = b.getBC().FindJob(jr.GetID())
+		}
 		if err != nil {
 			glg.Warn("Batch: Unable to find job - " + jr.GetID())
 			for _, exec := range jr.GetExec() {
@@ -137,10 +153,19 @@ func (b *Batch) Dispatch() {
 			}
 		} else {
 			for _, exec := range jr.GetExec() {
-				b.getPQ().Push(*j, exec, results, b.GetCancelChan())
+				sleepWG.Add(1)
+				go func(ex *job.Exec) {
+					if ex.GetExecutionTime() != 0 {
+						glg.Warn("Batch: Queuing in " + strconv.FormatFloat(time.Unix(ex.GetExecutionTime(), 0).Sub(time.Now()).Seconds(), 'f', -1, 64) + " nanoseconds")
+						time.Sleep(time.Nanosecond * time.Duration(time.Unix(ex.GetExecutionTime(), 0).Sub(time.Now()).Nanoseconds()))
+					}
+					b.getPQ().Push(*j, ex, results, b.GetCancelChan())
+					sleepWG.Done()
+				}(exec)
 			}
 		}
 	}
+	sleepWG.Wait()
 
 	//! wait for all jobs to be done
 	for {
